@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Jul 14 20:47:40 2018
+
+@author: joaom
+"""
+
+#%%
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+
+#%%
+#Getting the baseline data
+application_train = pd.read_csv('C:/Users/Bernardo Fernandes/Documents/GitHub/Bamboozled_team/data/application_train.csv')
+application_test = pd.read_csv('C:/Users/Bernardo Fernandes/Documents/GitHub/Bamboozled_team/data/application_test.csv')
+
+# PROBLEMAS APÒS O GET_DUMMIES (número de colunas diferem entre df's):
+# =============================================================================
+# No df de train, na coluna CODE_GENDER, existe um género
+# XNA que tem de ser removido
+# =============================================================================
+application_train = application_train[application_train['CODE_GENDER'] != 'XNA']
+
+# Em vez de se obter dummies para estas três features, preferi dar replace e mudar o tipo de dados para int
+application_train['CODE_GENDER'] = application_train['CODE_GENDER'].replace({'F' : 0, 'M' : 1}).astype('int64')
+application_train['FLAG_OWN_CAR'] = application_train['FLAG_OWN_CAR'].replace({'N' : 0, 'Y' : 1}).astype('int64')
+application_train['FLAG_OWN_REALTY'] = application_train['FLAG_OWN_REALTY'].replace({'N' : 0, 'Y' : 1}).astype('int64')
+# =============================================================================
+# No df de train, na coluna NAME_FAMILY_STATUS, existem dois
+# valores (Unkwnow), que não estão presentes em test. Decidi, portanto, criar
+# uma coluna correspondente em test e preenchê-la com zeros
+# =============================================================================
+application_test['NAME_FAMILY_STATUS_Unknown'] = 0
+# =============================================================================
+# No df de train, na coluna NAME_FAMILY_STATUS, existem valores 5 valores (Maternity leave)
+# que não estão presentes em test. Por agora decidi remover, mas no futuro
+# tenho de pensar numa alternativa
+# =============================================================================
+application_test['NAME_FAMILY_STATUS_Maternity leave'] = 0
+
+
+# =============================================================================
+# Remover XNA e dar replace nas features de application_test 
+application_test = application_test[application_test['CODE_GENDER'] != 'XNA']
+
+application_test['CODE_GENDER'] = application_test['CODE_GENDER'].replace({'F' : 0, 'M' : 1}).astype('int64')
+application_test['FLAG_OWN_CAR'] = application_test['FLAG_OWN_CAR'].replace({'N' : 0, 'Y' : 1}).astype('int64')
+application_test['FLAG_OWN_REALTY'] = application_test['FLAG_OWN_REALTY'].replace({'N' : 0, 'Y' : 1}).astype('int64')
+# =============================================================================
+# Data preprocessing
+# =============================================================================
+
+# =============================================================================
+# Method to fill de NaN's:
+# =============================================================================
+
+# Se a fração dos elementos nulos de uma coluna for igual 
+# ou superior a 0.3, a coluna é droppada!
+# Caso o tipo de dados da coluna seja object, preenche-se
+# os NaN's com a moda, caso contrário (int ou float),
+# preenche-se com a mediana
+
+def fill_nanas(df):
+    df_ = df.copy()
+    for col in df_.columns:
+        if df_[col].dtype == 'object':
+            df_[col].fillna(df_[col].mode(), inplace=True)
+        else:
+            df_[col].fillna(df_[col].median(), inplace=True)
+    return df_
+
+def binning(df):
+    df_ = df.copy()
+    for col in df_.columns[1:]:
+        if df_[col].nunique()>=70:
+            df_[col] = pd.cut(df_[col], bins=4, labels=[0,1,2,3])
+    return df_
+
+# =============================================================================
+# Getting the dummies for the object type data
+# =============================================================================
+def obj_to_cat(df):
+    df_ = df.copy()
+    for col in df_.columns:
+        df_ = pd.get_dummies(df_, drop_first=True)
+    return df_
+
+# =============================================================================
+# Finally transforming the data
+# =============================================================================
+
+
+
+application_train = fill_nanas(application_train)
+application_train = binning(application_train)
+application_train = obj_to_cat(application_train)
+
+application_test = fill_nanas(application_test)
+application_test = binning(application_test)
+application_test = obj_to_cat(application_test)
+
+X_train, y_train = application_train.drop(columns='TARGET'), application_train.TARGET
+
+# =============================================================================
+# Last issues(dealing with later on)
+#
+# 8 Columns still have several unique values(ELEVATORS_MODE,ENTRANCES_MODE
+# ,FLOORSMAX_MODE,FLOORSMIN_MODE,ELEVATORS_MEDI,ENTRANCES_MEDI,FLOORSMAX_MEDI
+# ,FLOORSMIN_MEDI)
+
+X_train = X_train.drop(columns=['ELEVATORS_MODE','ENTRANCES_MODE'
+,'FLOORSMAX_MODE','FLOORSMIN_MODE','ELEVATORS_MEDI','ENTRANCES_MEDI','FLOORSMAX_MEDI'
+,'FLOORSMIN_MEDI'])
+
+application_test = application_test.drop(columns=['ELEVATORS_MODE','ENTRANCES_MODE'
+,'FLOORSMAX_MODE','FLOORSMIN_MODE','ELEVATORS_MEDI','ENTRANCES_MEDI','FLOORSMAX_MEDI'
+,'FLOORSMIN_MEDI'])
+
+#%%
+# =============================================================================
+# GRIDSEARCH CV
+# =============================================================================
+rfc = RandomForestClassifier(max_depth = 8,max_leaf_nodes=500,criterion = 'gini',min_samples_split=3,min_samples_leaf=7,max_featuresw = 100)
+
+params= {}
+#'max_features' : [100,200,300],'max_depth' : [3,8],'max_leaf_nodes':[100,500],"criterion": ["gini",'entropy'],"min_samples_split": [3, 7],"min_samples_leaf": [3, 7]
+
+grid_search = GridSearchCV(estimator=rfc, scoring = 'roc_auc',param_grid=params,cv=4)
+grid_search.fit(X_train,y_train)
+
+print(grid_search.best_score_)
+print(grid_search.best_params_)
+    
+    
+    
+#%%
+# =============================================================================
+# SUBMISSION TIME - BASELINE
+# =============================================================================
+clf = LogisticRegression()
+clf.fit(X_train, y_train)
+
+y_pred = clf.predict_proba(application_test)[:,1]
+
+dict_sub = {'SK_ID_CURR' : application_test['SK_ID_CURR'], 'TARGET' : y_pred}
+submission = pd.DataFrame(dict_sub)
+print(submission)
+
+# =============================================================================
+# 2nd Submission - with RandomForestClassifier
+# =============================================================================
+#%%
+clf_2= RandomForestClassifier(max_depth = 8,max_leaf_nodes=500,criterion = 'gini',min_samples_split=3,min_samples_leaf=7,max_features = 100)
+
+
+#pipeline = Pipeline([('Scaler', MinMaxScaler()),('classifier', clf_2)])
+
+clf_2.fit_transform(X_train, y_train)
+#%%
+y_pred = clf_2.predict_proba(application_test)[:,1]
+dict_sub = {'SK_ID_CURR' : application_test['SK_ID_CURR'], 'TARGET' : y_pred}
+submission = pd.DataFrame(dict_sub)
+submission.to_csv('C:/Users/Bernardo Fernandes/Documents/GitHub/Bamboozled_team/rfc_2ndtry.csv', index=False)
